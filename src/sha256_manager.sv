@@ -8,9 +8,9 @@ module sha256_manager (
     ,input  logic                           src_manager_data_last
     ,output logic                           manager_src_rdy
 
-    ,input  logic                           manager_dst_digest_val
-    ,input  logic   [SHA256_DIGEST_W-1:0]   manager_dst_digest
-    ,output logic                           dst_manager_digest_rdy
+    ,output logic                           manager_dst_digest_val
+    ,output logic   [SHA256_DIGEST_W-1:0]   manager_dst_digest
+    ,input  logic                           dst_manager_digest_rdy
                    
     ,output logic                           manager_core_init
     ,output logic                           manager_core_next
@@ -68,7 +68,7 @@ module sha256_manager (
 
     assign manager_dst_digest = digest_next;
     assign manager_core_block = {block_upper_reg, block_lower_reg};
-    assign mode = 1'b1;
+    assign manager_core_mode = 1'b1;
 
     assign block_upper_next = write_block_upper
                             ? src_manager_data

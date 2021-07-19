@@ -53,8 +53,8 @@ module sha256_topsim();
     );
 
     sha256_manager manager (
-         .clk   ()
-        ,.rst   ()
+         .clk   (clk    )
+        ,.rst   (rst    )
 
         ,.src_manager_data_val      (file_manager_data_val      )
         ,.src_manager_data          (file_manager_data          )
