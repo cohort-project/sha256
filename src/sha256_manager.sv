@@ -1,26 +1,36 @@
-`include "sha256_defs.svh"
-module sha256_manager (
+
+import sha256_pkg::*;
+
+module sha256_manager #(
+    parameter int unsigned SRC_IF_DATA_W    = 64
+    ,parameter int unsigned SHA_IF_DATA_W   = 256
+    ,parameter int unsigned SHA256_BLOCK_W  = 512
+    ,parameter int unsigned SHA256_DIGEST_W = 256
+    ,parameter int unsigned SHA_IF_BYTES    = 256/8
+    ,parameter int unsigned SHA_IF_BYTES_W  = $clog2(SHA_IF_BYTES)
+)(
      input clk
     ,input rst
     
     ,input  logic                           src_manager_data_val                   
     ,input  logic   [SHA_IF_DATA_W-1:0]     src_manager_data
     ,input  logic                           src_manager_data_last
-    ,output logic                           manager_src_rdy
+    ,output logic                           manager_src_rdy       
 
-    ,output logic                           manager_dst_digest_val
-    ,output logic   [SHA256_DIGEST_W-1:0]   manager_dst_digest
+    ,output logic                           manager_dst_digest_val 
+    ,output logic   [SRC_IF_DATA_W-1:0]     manager_dst_digest
     ,input  logic                           dst_manager_digest_rdy
                    
     ,output logic                           manager_core_init
-    ,output logic                           manager_core_next
+    ,output logic                           manager_core_next 
     ,output logic                           manager_core_mode
-    ,output logic   [SHA256_BLOCK_W-1:0]    manager_core_block
+    ,output logic   [SHA256_BLOCK_W-1:0]    manager_core_block 
     ,input  logic                           core_manager_ready
 
     ,input  logic   [SHA256_DIGEST_W-1:0]   core_manager_digest
     ,input  logic                           core_manager_digest_valid
 );
+    `define D_CHUNKS SHA256_DIGEST_W/SRC_IF_DATA_W // digest chunks
 
     typedef enum logic[2:0] {
         READY = 3'b0,
@@ -47,28 +57,32 @@ module sha256_manager (
     logic                           write_block_upper;
     logic                           write_block_lower;
 
+    logic   [$clog2(`D_CHUNKS):0]   ind, ind_next;
+
     logic                           init_block_reg;
     logic                           init_block_next;
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            state_reg <= READY; 
+            state_reg  <= READY; 
             digest_reg <= '0;
             block_upper_reg <= '0;
-            init_block_reg <= '0;
+            block_lower_reg <= '0; // have or do not have?
+            init_block_reg  <= '0;
+            ind <= `D_CHUNKS;
         end
         else begin
-            state_reg <= state_next; 
+            state_reg  <= state_next; 
             digest_reg <= digest_next;
             block_upper_reg <= block_upper_next;
             block_lower_reg <= block_lower_next;
-            init_block_reg <= init_block_next;
+            init_block_reg  <= init_block_next;
+            ind        <= ind_next;
         end
     end
 
-    assign manager_dst_digest = digest_next;
     assign manager_core_block = {block_upper_reg, block_lower_reg};
-    assign manager_core_mode = 1'b1;
+    assign manager_core_mode  = 1'b1;
 
     assign block_upper_next = write_block_upper
                             ? src_manager_data
@@ -87,6 +101,7 @@ module sha256_manager (
         manager_core_next = 1'b0;
         manager_src_rdy = 1'b0;
         manager_dst_digest_val = 1'b0;
+        manager_dst_digest     = '0;
 
         write_block_upper = 1'b0;
         write_block_lower = 1'b0;
@@ -94,14 +109,18 @@ module sha256_manager (
 
         init_block_next = init_block_reg;
         state_next = state_reg;
+
+        ind_next = ind;
+
         case (state_reg)
             READY: begin
                 manager_src_rdy = 1'b1;
 
                 write_block_upper = src_manager_data_val;
                 init_block_next = 1'b1;
+
                 if (src_manager_data_val) begin
-                    state_next = DATA_INPUT_LOWER; 
+                    state_next = DATA_INPUT_LOWER;  
                 end
                 else begin
                     state_next = READY;
@@ -123,7 +142,7 @@ module sha256_manager (
                 end
             end
             DATA_INPUT_UPPER: begin
-                manager_src_rdy = core_manager_ready;
+                manager_src_rdy   = core_manager_ready;
                 manager_core_init = init_block_reg & src_manager_data_val;
                 manager_core_next = ~init_block_reg & src_manager_data_val;
 
@@ -148,29 +167,39 @@ module sha256_manager (
                 end
             end
             DIGEST_OUTPUT_WAIT: begin
-                manager_dst_digest_val = core_manager_digest_valid;
                 store_digest = core_manager_digest_valid;
                 if (core_manager_digest_valid) begin
+                    manager_dst_digest     = digest_next[(ind*SRC_IF_DATA_W-1) -:(SRC_IF_DATA_W)];
+                    manager_dst_digest_val = 'b1;
+                    
                     if (dst_manager_digest_rdy) begin
-                        state_next = READY;
-                    end
-                    else begin
+                        ind_next  -= 'b1;
                         state_next = DIGEST_OUTPUT;
+                    end else begin 
+                        state_next = DIGEST_OUTPUT_WAIT;
                     end
+                    
                 end
                 else begin
                     state_next = DIGEST_OUTPUT_WAIT;
                 end
             end
+            // send data in chunks 
             DIGEST_OUTPUT: begin
-                manager_dst_digest_val = 1'b1;
-                if (dst_manager_digest_rdy) begin
-                    state_next = READY; 
-                end
-                else begin
+                manager_dst_digest     = digest_next[(ind*SRC_IF_DATA_W-1) -:(SRC_IF_DATA_W)];
+                manager_dst_digest_val = 'b1;
+
+                if (dst_manager_digest_rdy && ind_next > 1) begin
+                    ind_next  -= 'b1;
+                    state_next = DIGEST_OUTPUT;
+                end else if (dst_manager_digest_rdy && ind_next == 1) begin
+                    ind_next   = `D_CHUNKS;
+                    state_next = READY;
+                end else begin
                     state_next = DIGEST_OUTPUT;
                 end
             end
+            
             default: begin
                 manager_core_init = 'X;
                 manager_core_next = 'X;
@@ -182,6 +211,7 @@ module sha256_manager (
                 store_digest = 'X;
 
                 init_block_next = 'X;
+                ind_next = 'X;
                 state_next = UND;
             end
         endcase

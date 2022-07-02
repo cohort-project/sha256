@@ -1,5 +1,11 @@
-`include "sha256_avocados_defs.svh"
-module sha256_padder (
+// import sha256_pkg::*;
+
+module sha256_padder #(
+    parameter int unsigned SHA_IF_DATA_W   = 256
+    ,parameter int unsigned SHA_IF_BYTES   = 256/8
+    ,parameter int unsigned SHA_IF_BYTES_W = $clog2(SHA_IF_BYTES)
+    ,parameter int unsigned SHA_IF_BITS_W  = $clog2(256)
+)(
      input clk
     ,input rst
     
