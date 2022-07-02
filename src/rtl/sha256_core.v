@@ -37,7 +37,7 @@
 //
 //======================================================================
 
-`default_nettype none
+//`default_nettype none
 
 module sha256_core(
                    input wire            clk,
